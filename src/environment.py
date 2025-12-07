@@ -313,15 +313,15 @@ class TFLiteQuantizationEnv:
         """
         Calculates reward based on quantization bonus and accuracy penalty.
         """
-        if len(self.decision_history) > 0:
-            r_quant = sum(self.decision_history) / len(self.decision_history)
-        else:
-            r_quant = 0.0
+        # Reward for quantization
+        r_quant = 1.0 if is_quantized else 0.0
 
+        # Accuracy penalty based on MSE
         stat = self.debugger_stats[layer_idx]
         avg_mse = stat['output_mse_mean']
         r_acc = np.tanh(avg_mse / TARGET_MSE_THRESHOLD)
-        
+
+        # Combine rewards
         total_reward = (W_COMPRESSION * r_quant) - (W_ACCURACY * r_acc)
         if ENABLE_DEBUG:
             logging.debug(f"Layer {layer_idx}: Quant={r_quant}, MSE={avg_mse:.6f}, R_Acc={r_acc:.4f}, Total={total_reward:.4f}")
