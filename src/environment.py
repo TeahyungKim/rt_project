@@ -127,6 +127,34 @@ class TFLiteQuantizationEnv:
         self.current_layer_idx = next_layer_idx
         return next_state, reward, done
 
+    def export_model(self, output_path: str):
+        """
+        Exports the final quantized model based on the current decision history.
+        """
+        temp_target_quant_layers = set(self.target_quant_layers)
+        denylisted_nodes = []
+        for idx, layer in enumerate(self.sorted_layers):
+            if idx not in temp_target_quant_layers:
+                denylisted_nodes.append(layer['output_name'])
+        
+        logging.info(f"Exporting model to {output_path}")
+        logging.info(f"Total Layers: {len(self.sorted_layers)}, Quantized: {sum(self.decision_history)}, Float: {len(denylisted_nodes)}")
+
+        debug_options = tf.lite.experimental.QuantizationDebugOptions(
+            denylisted_ops=['SPLIT'],
+            denylisted_nodes=denylisted_nodes
+        )
+
+        debugger = tf.lite.experimental.QuantizationDebugger(
+            converter=self.converter,
+            debug_dataset=self.debug_dataset_gen,
+            debug_options=debug_options
+        )
+        debugger.run()
+
+        with open(output_path, 'wb') as f:
+            f.write(debugger.quant_model)
+
     def _run_debugger(self, target_layer_idx: int):
         """
         Runs the QuantizationDebugger.
