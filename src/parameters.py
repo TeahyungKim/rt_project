@@ -16,8 +16,8 @@ W_ACCURACY = 1.0
 TARGET_MSE_THRESHOLD = 0.001
 
 # Model and Calibration Paths
-MODEL_PATH = "/root/workspace/rt_project/model/mobilenetv2/output"
-CALB_PATH = "/root/workspace/rt_project/model/mobilenetv2/output/input_1.npy"
+MODEL_PATH = "/root/workspace/rt_project/model/efficientnet_b0/output"
+CALB_PATH = "/root/workspace/rt_project/model/efficientnet_b0/output/input_1.npy"
 
 # Debug
 ENABLE_DEBUG = True
