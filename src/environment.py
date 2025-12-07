@@ -96,7 +96,7 @@ class TFLiteQuantizationEnv:
  
         # Run debugger for the first layer in advance
         self._run_debugger(target_layer_idx=0)
-        return self._construct_state(0)
+        return self._construct_next_state(0)
  
  
     def step(self, action_sensitivity: float) -> Tuple[np.ndarray, float, bool]:
@@ -120,7 +120,7 @@ class TFLiteQuantizationEnv:
         if not done:
             self._run_debugger(next_layer_idx)
 
-        next_state = self._construct_state(self.current_layer_idx, done)
+        next_state = self._construct_next_state(next_layer_idx, done)
         if ENABLE_DEBUG:
             logging.debug(f"Step: Layer {self.current_layer_idx}, Action(Sensitivity)={action_sensitivity:.4f}, Quantized={is_quantized}, Reward={reward:.4f}, Done={done}")
         self.current_layer_idx = next_layer_idx
@@ -271,15 +271,17 @@ class TFLiteQuantizationEnv:
             with open(f'./debug/quant_model_{target_layer_idx}.tflite', 'wb') as f:
                 f.write(debugger.quant_model)
 
-    def _construct_state(self, layer_idx: int, done: bool = False) -> np.ndarray:
+    def _construct_next_state(self, next_layer_idx: int, cur_done: bool = False) -> np.ndarray:
         """
         Constructs the 9-dim state vector.
         """
-        layer_info = self.sorted_layers[layer_idx]
-        
-        s1 = float(layer_idx)
+        if cur_done:
+            return np.zeros((9,), dtype=np.float32)
+
+        layer_info = self.sorted_layers[next_layer_idx]
+        s1 = float(next_layer_idx)
         s2 = float(hash(layer_info['op_name']) % 1000) / 1000.0
-        stat = self.debugger_stats[layer_idx]
+        stat = self.debugger_stats[next_layer_idx]
         s3 = stat['input_count'] 
         s4 = stat['input_elems']
         s5 = stat['input_mean']
