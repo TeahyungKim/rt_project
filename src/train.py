@@ -1,6 +1,7 @@
 import os
 import logging
 import datetime
+import argparse
 import numpy as np
 import tensorflow as tf
 import matplotlib.pyplot as plt
@@ -79,6 +80,10 @@ def plot_training_results(ep, EPOCHS, all_epoch_rewards, all_epoch_quant_counts,
         logging.error(f"Error plotting graphs: {e}")
 
 def main():
+    parser = argparse.ArgumentParser(description='Train PPO Agent for TFLite Quantization')
+    parser.add_argument('--checkpoint', '-c', type=str, help='Path to checkpoint file to load weights from')
+    args = parser.parse_args()
+
     date_str = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     setup_logging(f"train_execution_{date_str}.log")
     logging.info("Initializing Mixed-Precision Quantization via PPO...")
@@ -107,11 +112,28 @@ def main():
     # Initialize Agent
     agent = PPO() 
     
+    # Load Checkpoint if provided
+    if args.checkpoint:
+        if os.path.exists(args.checkpoint):
+            logging.info(f"Loading weights from checkpoint: {args.checkpoint}")
+            # Build the model first by running a dummy input
+            dummy_state = tf.zeros((1, 9))
+            agent(dummy_state)
+            try:
+                agent.load_weights(args.checkpoint)
+                logging.info("Weights loaded successfully.")
+            except Exception as e:
+                logging.error(f"Failed to load weights: {e}")
+        else:
+            logging.error(f"Checkpoint file not found: {args.checkpoint}")
+            return
+
     # Tracking Metrics
     episode_rewards = []
     
     # Plotting Data
     os.makedirs("plots", exist_ok=True)
+    os.makedirs("checkpoints", exist_ok=True)
     all_epoch_rewards = []
     all_epoch_quant_counts = []
     all_epoch_avg_mses = []
