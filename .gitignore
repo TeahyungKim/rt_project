@@ -173,6 +173,5 @@ cython_debug/
 *.tflite
 *.csv
 variables.data*
-model/*/output/*
 *.png
 *.h5
