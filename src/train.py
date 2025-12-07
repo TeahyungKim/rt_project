@@ -14,7 +14,7 @@ tf.get_logger().setLevel(logging.ERROR)
 
 from environment import TFLiteQuantizationEnv
 from ppo import PPO
-from parameters import EPOCHS, CALIB_SIZE
+from parameters import EPOCHS, CALIB_SIZE, MODEL_PATH, CALB_PATH
 
 def plot_training_results(ep, EPOCHS, all_epoch_rewards, all_epoch_quant_counts, all_epoch_avg_mses, step_mses, step_quant_counts, step_rmse_scales):
     """
@@ -87,12 +87,6 @@ def main():
     date_str = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     setup_logging(f"train_execution_{date_str}.log")
     logging.info("Initializing Mixed-Precision Quantization via PPO...")
-    
-    # Path to the SavedModel directory (Using Encoder Tiny as per main.py example)
-    # MODEL_PATH = "/root/workspace/rt_project/model/whisper_encoder_tiny/output"
-    # CALB_PATH = "/root/workspace/rt_project/model/whisper_encoder_tiny/output/calibration_audio_30x3000x80_float.npy"
-    MODEL_PATH = "/root/workspace/rt_project/model/mobilenetv2/output"
-    CALB_PATH = "/root/workspace/rt_project/model/mobilenetv2/output/input_1.npy"
 
     if not os.path.exists(MODEL_PATH):
         logging.error(f"Model path {MODEL_PATH} not found.")
@@ -107,7 +101,6 @@ def main():
         # Encoder tiny input is [1, 80, 3000] usually, but let's assume the user has the file or we fail.
         # Based on main.py, it seems the file exists.
         return
-
     
     # Initialize Agent
     agent = PPO() 
