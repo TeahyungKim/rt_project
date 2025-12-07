@@ -1,17 +1,30 @@
+import os
+import io
+import logging
+
+# Suppress TensorFlow logs (Must be before importing tensorflow)
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import numpy as np
 import tensorflow as tf
 import pandas as pd
-import os
-import io
+
 from typing import List, Dict, Tuple
 from utils import ModelUtils
+from hooks import TfHooks
 from parameters import QUANTIZATION_THRESHOLD, ENABLE_DEBUG, W_COMPRESSION, W_ACCURACY, TARGET_MSE_THRESHOLD
+
+tf.get_logger().setLevel(logging.ERROR)
 
 class TFLiteQuantizationEnv:
     """
     Reinforcement Learning Environment for TFLite Mixed-Precision Quantization.
     """
     def __init__(self, model_path: str, calib_idx: int, calib_data_list: List[np.ndarray]):
+        TfHooks.tf_hook_init()
+
+        # tf.lite.experimental.QuantizationDebugOptions.__init__ = __hook_init__
+        # tf.lite.experimental.QuantizationDebugger._collect_layer_statistics = _hook_collect_layer_statistics
+        
         self.model_path = model_path
         
         # Ensure model_path is a directory (SavedModel)
@@ -21,18 +34,18 @@ class TFLiteQuantizationEnv:
         # Initial conversion to analyze structure
         self.converter = tf.lite.TFLiteConverter.from_saved_model(self.model_path)
         self.f32_tflite_model = self.converter.convert()
-
         self.sorted_layers, self.tensor_details, self.input_details, self.output_details, \
         self.tensor_outputs, self.output_tensor_histories, self.output_tensor_targets = \
             ModelUtils.get_model_details(self.f32_tflite_model, calib_idx, calib_data_list)
         self.n_layers = len(self.sorted_layers)
-        
+
+        logging.info(f"Model({calib_idx}) loaded with {self.n_layers} layers for quantization.")
+
         self.converter.optimizations = [tf.lite.Optimize.DEFAULT]
 
         def debug_dataset_gen():
             yield_data_dict = []
             for i, input_detail in enumerate(self.input_details):
-                print(f"Preparing calibration data for input tensor: {input_detail['name']}")
                 calb_data = calib_data_list[i]                    
                 calb_data = calb_data[calib_idx:calib_idx+1]
                 yield_data_dict.append(tf.cast(
@@ -55,20 +68,20 @@ class TFLiteQuantizationEnv:
         Prints model summary.
         """
         # Print topological order
-        print("Layer inputs:")
+        logging.info("Layer inputs:")
         for input_detail in self.input_details:
-            print(f"Model Input Tensor: Index[{input_detail['index']}] Name[{input_detail['name']}] Shape{input_detail['shape']} DType[{input_detail['dtype']}]")
+            logging.info(f"Model Input Tensor: Index[{input_detail['index']}] Name[{input_detail['name']}] Shape{input_detail['shape']} DType[{input_detail['dtype']}]")
 
-        print("Topological Order of Layers:")
+        logging.info("Topological Order of Layers:")
         for i, layer in enumerate(self.sorted_layers):
             op_info = layer['op_info']
             output_idx = layer['output_idx']
-            print(f" - Layer{i}: [{op_info['op_name']}] Output[{output_idx}] <- Inputs[{op_info['inputs']}]")
-            print(f" ------------[{self.tensor_outputs[output_idx]}]")
+            logging.info(f" - Layer{i}: [{op_info['op_name']}] Output[{output_idx}] <- Inputs[{op_info['inputs']}]")
+            logging.info(f" ------------[{self.tensor_outputs[output_idx]}]")
 
-        print("Static Constant Tensors:")
+        logging.info("Static Constant Tensors:")
         for i, (name, stats) in enumerate(self.output_tensor_histories.items()):
-            print(f" - Tensor{i}: [{name}] Stats: {stats}")
+            logging.info(f" - Tensor{i}: [{name}] Stats: {stats}")
 
     def reset(self) -> np.ndarray:
         """
@@ -81,7 +94,7 @@ class TFLiteQuantizationEnv:
         self.cumulative_sensitivity_weighted = 0.0
         self.debugger_stats = {}
  
-        # Run debugger for the first layer
+        # Run debugger for the first layer in advance
         self._run_debugger(target_layer_idx=0)
         return self._construct_state(0)
  
@@ -102,12 +115,15 @@ class TFLiteQuantizationEnv:
         reward = self._calculate_reward(self.current_layer_idx, is_quantized)
 
         # Move to next layer
-        self.current_layer_idx += 1
-        done = self.current_layer_idx >= self.n_layers
+        next_layer_idx = self.current_layer_idx + 1
+        done = next_layer_idx >= self.n_layers
         if not done:
-            self._run_debugger(self.current_layer_idx)
+            self._run_debugger(next_layer_idx)
 
         next_state = self._construct_state(self.current_layer_idx, done)
+        if ENABLE_DEBUG:
+            logging.debug(f"Step: Layer {self.current_layer_idx}, Action(Sensitivity)={action_sensitivity:.4f}, Quantized={is_quantized}, Reward={reward:.4f}, Done={done}")
+        self.current_layer_idx = next_layer_idx
         return next_state, reward, done
 
     def _run_debugger(self, target_layer_idx: int):
@@ -127,11 +143,13 @@ class TFLiteQuantizationEnv:
                 denylisted_nodes.append(layer['output_name'])
         
         if ENABLE_DEBUG:
-            print(f"Target Layer_{target_layer_idx} : [{target_quant_layer_name}]")
-            print(f"Quantized Layers: [{len(temp_target_quant_layers)}]")
+            logging.info(f"Target Layer_{target_layer_idx} : [{target_quant_layer_name}]")
+            logging.info(f"Quantized Layers: [{len(temp_target_quant_layers)}]")
         
         # Configure debugger options
         captured_values = {
+            'name': None,
+            'modified_name': None,            
             'input_stats': [],
             'output_tensor_targets': []
         }
@@ -143,10 +161,13 @@ class TFLiteQuantizationEnv:
 
             q_output_idx, f_output_idx = verify_op_detail['inputs']
             f_output_detail = interpreter._get_tensor_details(f_output_idx, subgraph_index=0)
+            q_output_detail = interpreter._get_tensor_details(q_output_idx, subgraph_index=0)
             
             if target_quant_layer_name != f_output_detail['name']:
-                raise ValueError(f"Mismatched target layer in capture_metrics."\
-                    f" [{target_quant_layer_name}] != [{f_output_detail['name']}]")
+                logging.warning(f"Mismatched target layer in capture_metrics."\
+                    f" [{target_quant_layer_name}] != [{f_output_detail['name']}], qname: {q_output_detail['name']}")
+            captured_values['name'] = target_quant_layer_name
+            captured_values['modified_name'] = f_output_detail['name']
       
             def find_op_info(interpreter, idx):
                 ops_details = interpreter._get_ops_details()
@@ -157,7 +178,7 @@ class TFLiteQuantizationEnv:
 
             op_info = find_op_info(interpreter, f_output_idx)
             if ENABLE_DEBUG:
-                print(f"[{iter_info}] Found Op Info for target layer: {op_info['op_name']}, inputs: {op_info['inputs']}, outputs: {op_info['outputs']}")
+                logging.debug(f"[{iter_info}] Found Op Info for target layer: {op_info['op_name']}, inputs: {op_info['inputs']}, outputs: {op_info['outputs']}")
 
             self.output_tensor_histories[target_quant_layer_name] = ModelUtils.make_history(f)
             op_inputs = op_info['inputs']
@@ -165,7 +186,7 @@ class TFLiteQuantizationEnv:
             for i, in_idx in enumerate(op_inputs):
                 in_tensor_detail = interpreter._get_tensor_details(in_idx, subgraph_index=0)
                 if ENABLE_DEBUG:
-                    print(f"--[{i}/{len(op_inputs)}] tensor({in_idx}) shape: {in_tensor_detail['shape']} name: {in_tensor_detail['name']}, index: {in_tensor_detail['index']}")
+                    logging.debug(f"--[{i}/{len(op_inputs)}] tensor({in_idx}) shape: {in_tensor_detail['shape']} name: {in_tensor_detail['name']}, index: {in_tensor_detail['index']}")
                 if in_tensor_detail['name'] not in self.output_tensor_histories:
                     # Handle constants or model inputs
                     in_tensor_data = interpreter.tensor(in_idx)()
@@ -221,14 +242,15 @@ class TFLiteQuantizationEnv:
                 mse = np.mean((output_tensor - target_tensor) ** 2)
                 tensor_name = self.output_details[i]['name']
                 if ENABLE_DEBUG:
-                    print(f"Output Tensor[{tensor_name}] MSE: {mse}")
+                    logging.debug(f"Output Tensor[{tensor_name}] MSE: {mse}")
                 stats_df.loc[idx, f'output_mse{i}'] = mse
                 total_mse += mse
             stats_df.loc[idx, f'output_count'] = len(captured_values['output_tensor_targets'])
             stats_df.loc[idx, 'output_mse_mean'] = total_mse / len(captured_values['output_tensor_targets'])
         else:
             # Handle missing target tensor
-            raise Warning(f"Warning: Target tensor {target_quant_layer_name} not found in stats DataFrame.")
+            logging.error(stats_df)
+            raise Warning(f"Target tensor [{target_quant_layer_name}] not found in stats DataFrame[{stats_df['tensor_name']}].")
 
         def update_rmse(stats_df):
             stats_df['rmse'] = stats_df.apply(
@@ -244,9 +266,10 @@ class TFLiteQuantizationEnv:
         self.debugger_stats[target_layer_idx] = stats_df.iloc[-1]    
 
         if ENABLE_DEBUG:
-            stats_df.to_csv(f"debugger_stats_layer_{target_layer_idx}.csv")
-            with open(f'./quant_model_{target_layer_idx}.tflite', 'wb') as f:
-                f.write(debugger._get_debug_quant_model())
+            os.makedirs('./debug', exist_ok=True)
+            stats_df.to_csv(f"./debug/debugger_stats_layer_{target_layer_idx}.csv")
+            with open(f'./debug/quant_model_{target_layer_idx}.tflite', 'wb') as f:
+                f.write(debugger.quant_model)
 
     def _construct_state(self, layer_idx: int, done: bool = False) -> np.ndarray:
         """
@@ -282,5 +305,5 @@ class TFLiteQuantizationEnv:
         
         total_reward = (W_COMPRESSION * r_quant) - (W_ACCURACY * r_acc)
         if ENABLE_DEBUG:
-            print(f"Layer {layer_idx}: Quant={r_quant}, MSE={avg_mse:.6f}, R_Acc={r_acc:.4f}, Total={total_reward:.4f}")
+            logging.debug(f"Layer {layer_idx}: Quant={r_quant}, MSE={avg_mse:.6f}, R_Acc={r_acc:.4f}, Total={total_reward:.4f}")
         return total_reward

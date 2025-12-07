@@ -1,4 +1,5 @@
 # Hyperparameters
+CALIB_SIZE = 2
 BATCH_SIZE = 30
 EPOCHS = 500
 GAMMA = 0.99

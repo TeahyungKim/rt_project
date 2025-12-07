@@ -1,12 +1,45 @@
 import os
+import logging
+import sys
+
+# Suppress TensorFlow logs (Must be before importing tensorflow)
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+
 import numpy as np
 import tensorflow as tf
-import logging
-from typing import Dict
+from typing import List, Dict, Tuple
 
-# Suppress TensorFlow logs
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 tf.get_logger().setLevel(logging.ERROR)
+
+def setup_logging(log_file='execution.log'):
+    """
+    Sets up logging to file and console.
+    """
+    # Get root logger
+    logger = logging.getLogger()
+    
+    # If handlers are already configured, remove them to avoid duplicates
+    if logger.hasHandlers():
+        logger.handlers.clear()
+        
+    logger.setLevel(logging.DEBUG)
+
+    # Create handlers
+    c_handler = logging.StreamHandler(sys.stdout)
+    os.makedirs('./log', exist_ok=True)
+    f_handler = logging.FileHandler(f'./log/{log_file}', mode='w')
+    
+    c_handler.setLevel(logging.INFO)
+    f_handler.setLevel(logging.DEBUG)
+
+    # Create formatters and add it to handlers
+    formatter = logging.Formatter('%(asctime)s:%(levelname)s] %(message)s')
+    c_handler.setFormatter(formatter)
+    f_handler.setFormatter(formatter)
+
+    # Add handlers to the logger
+    logger.addHandler(c_handler)
+    logger.addHandler(f_handler)
 
 class ModelUtils:
     @staticmethod
