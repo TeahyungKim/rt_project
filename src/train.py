@@ -3,6 +3,7 @@ import logging
 import datetime
 import numpy as np
 import tensorflow as tf
+import matplotlib.pyplot as plt
 from utils import setup_logging
 
 
@@ -13,6 +14,69 @@ tf.get_logger().setLevel(logging.ERROR)
 from environment import TFLiteQuantizationEnv
 from ppo import PPO
 from parameters import EPOCHS, CALIB_SIZE
+
+def plot_training_results(ep, EPOCHS, all_epoch_rewards, all_epoch_quant_counts, all_epoch_avg_mses, step_mses, step_quant_counts, step_rmse_scales):
+    """
+    Plots training results and saves them to files.
+    """
+    try:
+        # 1. Epoch-level plots
+        plt.figure(figsize=(15, 5))
+        
+        plt.subplot(1, 3, 1)
+        plt.plot(all_epoch_rewards, label='Total Reward')
+        plt.title('Total Reward per Epoch')
+        plt.xlabel('Epoch')
+        plt.ylabel('Reward')
+        plt.grid(True)
+        
+        plt.subplot(1, 3, 2)
+        plt.plot(all_epoch_quant_counts, label='Quant Count', color='orange')
+        plt.title('Quantized Layers Count')
+        plt.xlabel('Epoch')
+        plt.ylabel('Count')
+        plt.grid(True)
+        
+        plt.subplot(1, 3, 3)
+        plt.plot(all_epoch_avg_mses, label='Avg MSE', color='green')
+        plt.title('Average MSE per Epoch')
+        plt.xlabel('Epoch')
+        plt.ylabel('MSE')
+        plt.grid(True)
+        
+        plt.tight_layout()
+        plt.savefig(f"plots/training_progress_epoch_{ep+1}.png")
+        plt.close()
+
+        # 2. Step-level plots (for the current epoch)
+        plt.figure(figsize=(15, 5))
+        
+        plt.subplot(1, 3, 1)
+        plt.plot(step_mses, label='MSE')
+        plt.title(f'MSE per Step (Epoch {ep+1})')
+        plt.xlabel('Layer Step')
+        plt.ylabel('MSE')
+        plt.grid(True)
+        
+        plt.subplot(1, 3, 2)
+        plt.plot(step_quant_counts, label='Cumulative Quant Count', color='orange')
+        plt.title(f'Quantization Count (Epoch {ep+1})')
+        plt.xlabel('Layer Step')
+        plt.ylabel('Count')
+        plt.grid(True)
+        
+        plt.subplot(1, 3, 3)
+        plt.plot(step_rmse_scales, label='RMSE/Scale', color='red')
+        plt.title(f'RMSE/Scale per Step (Epoch {ep+1})')
+        plt.xlabel('Layer Step')
+        plt.ylabel('RMSE/Scale')
+        plt.grid(True)
+        
+        plt.tight_layout()
+        plt.savefig(f"plots/step_details_epoch_{ep+1}.png")
+        plt.close()
+    except Exception as e:
+        logging.error(f"Error plotting graphs: {e}")
 
 def main():
     date_str = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -46,6 +110,12 @@ def main():
     # Tracking Metrics
     episode_rewards = []
     
+    # Plotting Data
+    os.makedirs("plots", exist_ok=True)
+    all_epoch_rewards = []
+    all_epoch_quant_counts = []
+    all_epoch_avg_mses = []
+    
     logging.info(f"Starting training for {EPOCHS} episodes...")
 
     # prepare multiple environments depending on calibration data
@@ -63,6 +133,11 @@ def main():
         state = env.reset()
         done = False
         ep_reward = 0
+        
+        # Step-level metrics for this epoch
+        step_mses = []
+        step_quant_counts = []
+        step_rmse_scales = []
         
         while not done:
             # 1. Get Action
@@ -89,6 +164,18 @@ def main():
             # 2. Step Environment
             next_state, reward, done = env.step(a_env)
             
+            # Collect Step Metrics
+            # Note: env.current_layer_idx is already incremented in step()
+            last_layer_idx = env.current_layer_idx - 1
+            if last_layer_idx in env.debugger_stats:
+                stat = env.debugger_stats[last_layer_idx]
+                step_mses.append(stat.get('output_mse_mean', 0.0))
+                step_rmse_scales.append(stat.get('rmse/scale', 0.0))
+            else:
+                step_mses.append(0.0)
+                step_rmse_scales.append(0.0)
+            step_quant_counts.append(sum(env.decision_history))
+            
             # 3. Store Experience
             # PPO expects: (s, a, r, s_prime, log_prob_a, done)
             # Store unclipped 'a' to maintain Gaussian consistency in PPO update
@@ -102,8 +189,22 @@ def main():
         
         episode_rewards.append(ep_reward)
         
-        if (ep + 1) % 1 == 0:
-            logging.info(f"Episode {ep+1}/{EPOCHS} | Total Reward: {ep_reward:.4f}")
+        # Update Epoch Metrics
+        all_epoch_rewards.append(ep_reward)
+        all_epoch_quant_counts.append(sum(env.decision_history))
+        all_epoch_avg_mses.append(np.mean(step_mses) if step_mses else 0.0)
+        
+        logging.info(f"Episode {ep+1}/{EPOCHS} | Total Reward: {ep_reward:.4f}")
+        
+        # Save weights
+        try:
+            agent.save_weights(f"checkpoints/ppo_agent_epoch_{ep+1}.weights.h5")
+        except Exception as e:
+            logging.error(f"Failed to save weights: {e}")
+
+        # Plotting every 10 epochs or last epoch
+        if (ep + 1) % 10 == 0 or (ep + 1) == EPOCHS:
+            plot_training_results(ep, EPOCHS, all_epoch_rewards, all_epoch_quant_counts, all_epoch_avg_mses, step_mses, step_quant_counts, step_rmse_scales)
 
     logging.info("Training Complete.")
     
