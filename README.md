@@ -13,15 +13,11 @@ This project implements a Reinforcement Learning (RL) based approach to find the
 
 ## Requirements
 
-*   Python 3.8+
-*   TensorFlow 2.x
-*   NumPy
-*   Pandas
-*   Matplotlib
+*   Python 3.11.x
 
 Install dependencies:
 ```bash
-pip install tensorflow numpy pandas matplotlib
+pip install -r requirements.txt
 ```
 
 ## Usage
