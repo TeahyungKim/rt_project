@@ -1,7 +1,7 @@
 # Hyperparameters
 CALIB_SIZE = 30
 BATCH_SIZE = 1
-EPOCHS = 200
+EPOCHS = 300
 GAMMA = 0.99
 LEARNING_RATE = 3e-4
 CLIP_RATIO = 0.2
@@ -16,8 +16,9 @@ W_ACCURACY = 1.0
 TARGET_MSE_THRESHOLD = 0.001
 
 # Model and Calibration Paths
-MODEL_PATH = "/root/workspace/rt_project/model/efficientnet_b0/output"
-CALB_PATH = "/root/workspace/rt_project/model/efficientnet_b0/output/input_1.npy"
+MODEL_PATH = "/root/workspace/rt_project/model/mobilenetv3/output"
+CALB_PATH = "/root/workspace/rt_project/model/mobilenetv3/output/input_1.npy"
 
 # Debug
 ENABLE_DEBUG = True
+ENABLE_DEBUG_DUMP = False

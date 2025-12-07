@@ -11,7 +11,7 @@ import pandas as pd
 from typing import List, Dict, Tuple
 from utils import ModelUtils
 from hooks import TfHooks
-from parameters import QUANTIZATION_THRESHOLD, ENABLE_DEBUG, W_COMPRESSION, W_ACCURACY, TARGET_MSE_THRESHOLD
+from parameters import QUANTIZATION_THRESHOLD, ENABLE_DEBUG, W_COMPRESSION, W_ACCURACY, TARGET_MSE_THRESHOLD, ENABLE_DEBUG_DUMP
 
 tf.get_logger().setLevel(logging.ERROR)
 
@@ -294,7 +294,7 @@ class TFLiteQuantizationEnv:
         # Store the last row of stats
         self.debugger_stats[target_layer_idx] = stats_df.iloc[-1]    
 
-        if ENABLE_DEBUG:
+        if ENABLE_DEBUG_DUMP:
             os.makedirs('./debug', exist_ok=True)
             stats_df.to_csv(f"./debug/debugger_stats_layer_{target_layer_idx}.csv")
             with open(f'./debug/quant_model_{target_layer_idx}.tflite', 'wb') as f:
