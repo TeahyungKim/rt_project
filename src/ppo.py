@@ -1,6 +1,6 @@
 import tensorflow as tf
 import numpy as np
-from parameters import LEARNING_RATE, GAMMA, CLIP_RATIO, ENTROPY_COEF
+from parameters import LEARNING_RATE, GAMMA, CLIP_RATIO, ENTROPY_COEF, LMBDA, K_EPOCH
 
 class PPO(tf.keras.Model):
     def __init__(self, state_dim=9, action_dim=1):
@@ -72,12 +72,8 @@ class PPO(tf.keras.Model):
 
     def train_net(self):
         s, a, r, s_prime, done_mask, old_log_prob_a = self.make_batch()
-        
-        # PPO Hyperparameters
-        lmbda = 0.95
-        K_epoch = 3
 
-        for i in range(K_epoch):
+        for i in range(K_EPOCH):
             with tf.GradientTape() as tape:
                 v_prime = self.v(s_prime)
                 td_target = r + GAMMA * v_prime * done_mask
@@ -88,7 +84,7 @@ class PPO(tf.keras.Model):
                 advantage_lst = []
                 advantage = 0.0
                 for delta_t in delta[::-1]:
-                    advantage = GAMMA * lmbda * advantage + delta_t[0]
+                    advantage = GAMMA * LMBDA * advantage + delta_t[0]
                     advantage_lst.append([advantage])
                 advantage_lst.reverse()
                 advantage = tf.convert_to_tensor(advantage_lst, dtype=tf.float32)

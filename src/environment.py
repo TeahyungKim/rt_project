@@ -105,6 +105,7 @@ class TFLiteQuantizationEnv:
         """
         # Interpret action
         is_quantized = action_sensitivity > QUANTIZATION_THRESHOLD
+        self.target_quant_layers.append(self.current_layer_idx) if is_quantized else None
         
         # Update history
         self.decision_history.append(is_quantized)
@@ -277,20 +278,36 @@ class TFLiteQuantizationEnv:
         """
         if cur_done:
             return np.zeros((9,), dtype=np.float32)
-
         layer_info = self.sorted_layers[next_layer_idx]
-        s1 = float(next_layer_idx)
-        s2 = float(hash(layer_info['op_name']) % 1000) / 1000.0
-        stat = self.debugger_stats[next_layer_idx]
-        s3 = stat['input_count'] 
-        s4 = stat['input_elems']
-        s5 = stat['input_mean']
-        s6 = stat['input_std']
-        s7 = stat['rmse/scale']
-        s8 = self.cumulative_sensitivity_weighted
-        s9 = float(sum(self.decision_history))
         
-        return np.array([s1, s2, s3, s4, s5, s6, s7, s8, s9], dtype=np.float32)
+        # Normalize features to avoid saturation
+        n_layers_float = float(max(1, self.n_layers))
+        
+        s1 = float(next_layer_idx) / n_layers_float
+        s2 = float(hash(layer_info['op_name']) % 1000) / 1000.0
+        
+        stat = self.debugger_stats[next_layer_idx]
+        
+        # Log scale for counts to handle large variance
+        s3 = np.log1p(float(stat['input_count'])) 
+        s4 = np.log1p(float(stat['input_elems'])) / 10.0 
+        
+        # Tanh for statistics to bound them [-1, 1]
+        s5 = np.tanh(float(stat['input_mean']))
+        s6 = np.tanh(float(stat['input_std']))
+        
+        # Handle potential infinity/NaN in rmse/scale
+        val_s7 = float(stat['rmse/scale'])
+        if np.isfinite(val_s7):
+            s7 = np.tanh(val_s7)
+        else:
+            s7 = 1.0
+            
+        s8 = self.cumulative_sensitivity_weighted / n_layers_float
+        s9 = float(sum(self.decision_history)) / n_layers_float
+        
+        state = np.array([s1, s2, s3, s4, s5, s6, s7, s8, s9], dtype=np.float32)
+        return np.nan_to_num(state)
 
     def _calculate_reward(self, layer_idx: int, is_quantized: bool) -> float:
         """

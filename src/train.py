@@ -69,27 +69,30 @@ def main():
             # Add batch dimension [1, state_dim]
             tf_state = tf.convert_to_tensor([state], dtype=tf.float32)
             mu, sigma = agent.pi(tf_state)
-            sigma = sigma + 1e-5
             
-            # Manual Sampling (Reparameterization Trick)
-            epsilon = tf.random.normal(shape=tf.shape(mu))
-            action = mu + sigma * epsilon
+            # Numpy Sampling
+            mu_np = mu.numpy()[0]
+            sigma_np = sigma.numpy()[0] + 1e-5
             
-            # Manual Log Prob
-            log_prob = -0.5 * tf.square((action - mu) / sigma) - tf.math.log(sigma) - 0.5 * np.log(2 * np.pi)
+            a = np.random.normal(mu_np, sigma_np)
+            log_prob_a = -0.5 * ((a - mu_np) / sigma_np)**2 - np.log(sigma_np) - 0.5 * np.log(2 * np.pi)
             
-            # Clip action to valid range [0, 1] for sensitivity
-            action = tf.clip_by_value(action, 0.0, 1.0)
+            # Clip action for environment
+            a_env = np.clip(a, 0.0, 1.0).item()
             
-            a = action.numpy()[0][0]
-            log_prob_a = log_prob.numpy()[0][0]
+            # Convert to scalars for storage
+            a_scalar = a.item()
+            log_prob_a_scalar = log_prob_a.item()
             
+            logging.debug(f"Episode {ep+1} | State: {state} | Mu: {mu_np} | Sigma: {sigma_np} | Action: {a_scalar}")
+
             # 2. Step Environment
-            next_state, reward, done = env.step(a)
+            next_state, reward, done = env.step(a_env)
             
             # 3. Store Experience
             # PPO expects: (s, a, r, s_prime, log_prob_a, done)
-            agent.put_data((state, a, reward, next_state, log_prob_a, done))
+            # Store unclipped 'a' to maintain Gaussian consistency in PPO update
+            agent.put_data((state, a_scalar, reward, next_state, log_prob_a_scalar, done))
             
             state = next_state
             ep_reward += reward
