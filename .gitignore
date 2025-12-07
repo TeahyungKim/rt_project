@@ -174,4 +174,5 @@ cython_debug/
 *.csv
 variables.data*
 model/*/output/*
-
+*.png
+*.h5

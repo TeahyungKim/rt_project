@@ -153,7 +153,7 @@ class TFLiteQuantizationEnv:
         debugger.run()
 
         with open(output_path, 'wb') as f:
-            f.write(debugger.quant_model)
+            f.write(debugger.get_nondebug_quantized_model())
 
     def _run_debugger(self, target_layer_idx: int):
         """

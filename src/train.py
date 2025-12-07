@@ -111,14 +111,13 @@ def main():
     
     # Initialize Agent
     agent = PPO() 
-    
+    dummy_state = tf.zeros((1, 9))
+    agent(dummy_state)
+
     # Load Checkpoint if provided
     if args.checkpoint:
         if os.path.exists(args.checkpoint):
             logging.info(f"Loading weights from checkpoint: {args.checkpoint}")
-            # Build the model first by running a dummy input
-            dummy_state = tf.zeros((1, 9))
-            agent(dummy_state)
             try:
                 agent.load_weights(args.checkpoint)
                 logging.info("Weights loaded successfully.")
@@ -221,15 +220,15 @@ def main():
         # Save weights
         try:
             agent.save_weights(f"checkpoints/ppo_agent_epoch_{ep+1}.weights.h5")
-            # Export TFLite model
-            model_export_path = f"checkpoints/quant_model_epoch_{ep+1}.tflite"
-            env.export_model(model_export_path)
         except Exception as e:
             logging.error(f"Failed to save checkpoint/model: {e}")
 
-        # Plotting every 10 epochs or last epoch
-        if (ep + 1) % 10 == 0 or (ep + 1) == EPOCHS:
-            plot_training_results(ep, EPOCHS, all_epoch_rewards, all_epoch_quant_counts, all_epoch_avg_mses, step_mses, step_quant_counts, step_rmse_scales)
+        # Export TFLite model
+        model_export_path = f"checkpoints/quant_model_epoch_{ep+1}.tflite"
+        env.export_model(model_export_path)
+
+
+        plot_training_results(ep, EPOCHS, all_epoch_rewards, all_epoch_quant_counts, all_epoch_avg_mses, step_mses, step_quant_counts, step_rmse_scales)
 
     logging.info("Training Complete.")
 
